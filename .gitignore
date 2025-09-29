@@ -1,0 +1,23 @@
+# Ignore subfolders
+*/
+
+# Except for specific source files in subfolders that we want to include
+!*/*.clw
+!*/*.inc
+
+# Ignore Clarion project files
+*.cwproj
+*.sln
+*.cache
+
+# Ignore binaries
+*.dll
+*.exe
+
+# Ignore object files and map files
+obj/
+map/
+*.obj
+*.MAP
+*.lib
+*.RSC

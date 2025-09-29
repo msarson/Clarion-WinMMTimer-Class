@@ -1,0 +1,15 @@
+# Set default behavior to automatically normalize line endings
+* text=auto
+
+# Clarion source files should use CRLF line endings
+*.clw text eol=crlf linguist-language=Clarion
+*.inc text eol=crlf linguist-language=Clarion
+
+# Treat these files as binary to avoid line ending conversion
+*.exe binary
+*.dll binary
+*.ico binary
+*.bmp binary
+*.png binary
+*.jpg binary
+*.gif binary
