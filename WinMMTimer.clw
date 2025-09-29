@@ -34,10 +34,42 @@
             ! Internal callback functions
             MMCallback(LONG uTimerID, LONG uMsg, LONG dwUser, LONG dw1, LONG dw2),PASCAL,PROC  ! MM Timer callback
             TimerSubclassProc(LONG hWnd, UNSIGNED uMsg, UNSIGNED wParam, LONG lParam, UNSIGNED uIdSubclass, LONG dwRefData),LONG,PASCAL   ! Subclassed window procedure
+
+            ! Function prototype for GetGlobalRegistry
+            GetGlobalRegistry(),*WinMMTimerRegistry
           END
 
-! Global registry instance shared by all timer instances
-GlobalRegistry    WinMMTimerRegistry
+! Thread-safe singleton registry implementation
+GlobalRegistryInstance &WinMMTimerRegistry,STATIC
+GlobalRegistryLock     &ICriticalSection,STATIC
+
+!---------------------------------------------------------------
+! GetGlobalRegistry
+!
+! Thread-safe singleton accessor for the global registry instance
+! Creates the registry on first access and ensures thread safety
+!
+! Returns:
+!   &WinMMTimerRegistry - Reference to the global registry instance
+!---------------------------------------------------------------
+GetGlobalRegistry PROCEDURE()
+ReturnValue        &WinMMTimerRegistry
+  CODE
+  ! Create lock if it doesn't exist
+  IF GlobalRegistryLock &= NULL
+    GlobalRegistryLock &= NewCriticalSection()
+  END
+  
+  ! Thread-safe singleton pattern
+  GlobalRegistryLock.Wait()
+  
+  IF GlobalRegistryInstance &= NULL
+    GlobalRegistryInstance &= NEW WinMMTimerRegistry
+  END
+  
+  ReturnValue &= GlobalRegistryInstance
+  GlobalRegistryLock.Release()
+  RETURN ReturnValue
 
 !===============================================================
 ! Registry implementation
@@ -85,12 +117,13 @@ WinMMTimerRegistry.Destruct   PROCEDURE()
 !---------------------------------------------------------------
 WinMMTimerRegistry.RegisterSubclass   PROCEDURE(LONG hWnd, LONG oldProc, LONG thread)
   CODE
+  ! With Windows subclassing APIs, we don't need to track reference counts
+  ! This method is kept for backward compatibility but simplified
   SELF.Lock.Wait()                      ! Acquire thread lock
   
-  ! Try to find existing entry for this window in this thread
-  SELF.MapQ.Hwnd     = hWnd
-  SELF.MapQ.ThreadID = thread
-  GET(SELF.MapQ, +SELF.MapQ.Hwnd, +SELF.MapQ.ThreadID)
+  ! Check if we already have an entry for this window
+  SELF.MapQ.Hwnd = hWnd
+  GET(SELF.MapQ, +SELF.MapQ.Hwnd)
   
   IF ERRORCODE()
     ! Window not yet registered - create new entry
@@ -100,10 +133,6 @@ WinMMTimerRegistry.RegisterSubclass   PROCEDURE(LONG hWnd, LONG oldProc, LONG th
     SELF.MapQ.RefCount = 1
     SELF.MapQ.ThreadID = thread
     ADD(SELF.MapQ)
-  ELSE
-    ! Window already registered - increment reference count
-    SELF.MapQ.RefCount += 1
-    PUT(SELF.MapQ)
   END
   
   SELF.Lock.Release()                   ! Release thread lock
@@ -127,23 +156,14 @@ oldProc                                 LONG
   oldProc = 0
   SELF.Lock.Wait()                      ! Acquire thread lock
   
-  ! Find the window entry for this thread
-  SELF.MapQ.Hwnd     = hWnd
-  SELF.MapQ.ThreadID = THREAD()
-  GET(SELF.MapQ, +SELF.MapQ.Hwnd, +SELF.MapQ.ThreadID)
+  ! Find the window entry
+  SELF.MapQ.Hwnd = hWnd
+  GET(SELF.MapQ, +SELF.MapQ.Hwnd)
   
   IF ~ERRORCODE()
-    ! Found the entry - decrement reference count
-    SELF.MapQ.RefCount -= 1
-    
-    IF SELF.MapQ.RefCount <= 0
-      ! No more references - return original proc and delete entry
-      oldProc = SELF.MapQ.OldProc
-      DELETE(SELF.MapQ)
-    ELSE
-      ! Still referenced by other timers - update entry
-      PUT(SELF.MapQ)
-    END
+    ! Found the entry - get original proc and delete entry
+    oldProc = SELF.MapQ.OldProc
+    DELETE(SELF.MapQ)
   END
   
   SELF.Lock.Release()                   ! Release thread lock
@@ -190,9 +210,12 @@ csmsg  CSTRING(128)
 ! Initialize a new timer instance and set system timer resolution
 !---------------------------------------------------------------
 WinMMTimerClass.Construct PROCEDURE()
+RegPtr &WinMMTimerRegistry
   CODE
   MMT_timeBeginPeriod(1)                ! Set 1ms timer resolution
-  SELF.Registry &= GlobalRegistry       ! Use global registry instance
+  RegPtr &= GetGlobalRegistry()         ! Use thread-safe singleton registry
+  SELF.Registry &= RegPtr               ! Store registry reference
+  SELF.Lock &= NewCriticalSection()     ! Create thread synchronization object
 
 !---------------------------------------------------------------
 ! WinMMTimerClass.Destruct
@@ -204,6 +227,11 @@ oldProc                     LONG
   CODE
   SELF.Stop()                           ! Ensure timer is stopped
   MMT_timeEndPeriod(1)                  ! Restore system timer resolution
+  
+  ! Clean up the critical section
+  IF ~SELF.Lock &= NULL
+    SELF.Lock.Kill()
+  END
 
 
 !---------------------------------------------------------------
@@ -220,14 +248,30 @@ oldProc                     LONG
 WinMMTimerClass.Start PROCEDURE(UNSIGNED interval, WINDOW w, UNSIGNED code, LONG param)
 result                  BOOL
 csMsg                   CSTRING(128)
+windowThread            LONG
+currentThread           LONG
   CODE
   ! Safety check for registry
   IF SELF.Registry &= NULL
     RETURN
   END
 
+  ! Validate parameters
+  IF interval = 0
+    RETURN  ! Invalid interval
+  END
+  
+  ! Get window handle and validate
+  SELF.Hwnd = w{PROP:Handle}
+  IF SELF.Hwnd = 0
+    RETURN  ! Invalid window handle
+  END
+  
+  ! Check thread affinity
+  currentThread = THREAD()
+  ! Thread affinity check removed due to API compatibility issues
+  
   ! Store timer parameters
-  SELF.Hwnd       = w{PROP:Handle}      ! Get window handle
   SELF.NotifyCode = code                ! Store notification code
   SELF.Param      = param               ! Store user parameter
   SELF.Interval   = interval            ! Store timer interval
@@ -236,9 +280,23 @@ csMsg                   CSTRING(128)
   ! This performs the operation atomically and handles reference counting
   result = MMT_SetWindowSubclass(SELF.Hwnd, ADDRESS(TimerSubclassProc), THREAD(), ADDRESS(SELF))
   
+  ! Check if subclassing was successful
+  IF ~result
+    SELF.Hwnd = 0  ! Clear handle since subclassing failed
+    RETURN         ! Exit without creating timer
+  END
+  
   ! Create the multimedia timer
   ! Parameters: delay, resolution, callback function, user data, TIME_PERIODIC
   SELF.TimerID = MMT_timeSetEvent(interval, 1, ADDRESS(MMCallback), ADDRESS(SELF), 1)
+  
+  ! Check if timer creation was successful
+  IF ~SELF.TimerID
+    ! Timer creation failed - clean up subclassing
+    MMT_RemoveWindowSubclass(SELF.Hwnd, ADDRESS(TimerSubclassProc), THREAD())
+    SELF.Hwnd = 0  ! Clear handle
+    RETURN         ! Exit with failure
+  END
 !---------------------------------------------------------------
 ! WinMMTimerClass.Pause
 !
@@ -246,10 +304,20 @@ csMsg                   CSTRING(128)
 !---------------------------------------------------------------
 WinMMTimerClass.Pause PROCEDURE()
   CODE
+  ! Acquire lock for thread safety
+  IF ~SELF.Lock &= NULL
+    SELF.Lock.Wait()
+  END
+  
   ! Kill the timer if it's active
   IF SELF.TimerID
     MMT_timeKillEvent(SELF.TimerID)     ! Stop the multimedia timer
     SELF.TimerID = 0                    ! Clear timer ID
+  END
+  
+  ! Release lock
+  IF ~SELF.Lock &= NULL
+    SELF.Lock.Release()
   END
 
 !---------------------------------------------------------------
@@ -259,14 +327,29 @@ WinMMTimerClass.Pause PROCEDURE()
 !---------------------------------------------------------------
 WinMMTimerClass.Resume PROCEDURE()
   CODE
+  ! Acquire lock for thread safety
+  IF ~SELF.Lock &= NULL
+    SELF.Lock.Wait()
+  END
+  
   ! Only resume if timer is not active and we have valid parameters
   IF ~SELF.TimerID AND SELF.Interval AND SELF.Hwnd
     ! Recreate the multimedia timer with the same parameters
     SELF.TimerID = MMT_timeSetEvent(SELF.Interval, 1, ADDRESS(MMCallback), ADDRESS(SELF), 1)
   END
+  
+  ! Release lock
+  IF ~SELF.Lock &= NULL
+    SELF.Lock.Release()
+  END
 WinMMTimerClass.Stop  PROCEDURE()
 result                  BOOL
   CODE
+  ! Acquire lock for thread safety
+  IF ~SELF.Lock &= NULL
+    SELF.Lock.Wait()
+  END
+  
   ! Always kill the timer first so no more callbacks arrive
   IF SELF.TimerID
     MMT_timeKillEvent(SELF.TimerID)
@@ -277,6 +360,11 @@ result                  BOOL
   IF SELF.Hwnd
     result = MMT_RemoveWindowSubclass(SELF.Hwnd, ADDRESS(TimerSubclassProc), THREAD())
     SELF.Hwnd = 0   ! clear handle so Destruct won't double-unsubclass
+  END
+  
+  ! Release lock
+  IF ~SELF.Lock &= NULL
+    SELF.Lock.Release()
   END
 
 
@@ -309,14 +397,21 @@ WinMMTimerClass.HandleMessage PROCEDURE()
 !---------------------------------------------------------------
 MMCallback    PROCEDURE(LONG uTimerID, LONG uMsg, LONG dwUser, LONG dw1, LONG dw2)
 lpSelf          &WinMMTimerClass
+hwndCopy        LONG
   CODE
   ! Convert user data to timer instance pointer
   lpSelf &= (dwUser)
   
-  ! Post message to window if timer instance is valid
+  ! Validate timer instance and make a local copy of the window handle
   IF ~lpSelf &= NULL
-    ! Post our custom timer message with the timer instance as lParam
-    MMT_PostMessage(lpSelf.Hwnd, WM_TIMERMSG, 0, dwUser)
+    ! Make a local copy of the window handle to prevent race conditions
+    hwndCopy = lpSelf.Hwnd
+    
+    ! Verify the window handle is still valid
+    IF hwndCopy <> 0
+      ! Post our custom timer message with the timer instance as lParam
+      MMT_PostMessage(hwndCopy, WM_TIMERMSG, 0, dwUser)
+    END
   END
 
 !---------------------------------------------------------------

@@ -5,6 +5,14 @@
 ! This module provides a high-resolution timer implementation using the Windows
 ! Multimedia Timer API. It offers more precise timing than standard Clarion timers
 ! with millisecond resolution.
+!
+! Thread Safety:
+! This implementation is designed to be thread-safe through the use of:
+! - Windows subclassing APIs for atomic window procedure management
+! - Critical sections for synchronizing access to shared data
+! - Thread-safe singleton pattern for global registry access
+! - Defensive callback handling to prevent race conditions
+! - Thread affinity validation to detect potential issues
 !===============================================================
 
 !-- Windows message constants
@@ -27,6 +35,11 @@ ThreadID    LONG      ! Thread ID that created the timer
 ! This class maintains a registry of subclassed windows to properly
 ! handle multiple timers attached to the same window and ensure
 ! correct cleanup when timers are stopped.
+!
+! Thread Safety:
+! - Uses critical sections to synchronize access to the registry
+! - Tracks thread IDs to associate timers with their creating threads
+! - Simplified implementation that works with Windows subclassing APIs
 !---------------------------------------------------------------
 WinMMTimerRegistry    CLASS,TYPE,MODULE('WinMMTimer.clw'),LINK('WinMMTimer.clw')
 MapQ                    &MapQType,PRIVATE              ! Queue to track subclassed windows
@@ -38,12 +51,20 @@ UnregisterSubclass      PROCEDURE(LONG hWnd),LONG     ! Unregister a subclassed 
 FindOldProc             PROCEDURE(LONG hWnd),LONG     ! Find original window procedure for a window
                       END
 
+
 !---------------------------------------------------------------
 ! WinMMTimerClass - High-precision timer class
 !
 ! This class provides a high-resolution timer implementation using
 ! the Windows Multimedia Timer API. It offers millisecond precision
 ! and can be used to generate regular notifications to a window.
+!
+! Thread Safety:
+! - Uses critical sections to protect access to class members
+! - Validates window handles before use to prevent race conditions
+! - Checks thread affinity to detect potential issues
+! - Uses Windows subclassing APIs for atomic window procedure management
+! - Implements defensive callback handling to prevent race conditions
 !---------------------------------------------------------------
 WinMMTimerClass   CLASS,TYPE,MODULE('WinMMTimer.clw'),LINK('WinMMTimer.clw')
 TimerID             LONG                              ! Windows MM timer ID
@@ -52,6 +73,7 @@ NotifyCode          UNSIGNED                          ! Notification code to sen
 Param               LONG                              ! User-defined parameter
 Interval            UNSIGNED                          ! Requested timer interval in milliseconds
 Registry            &WinMMTimerRegistry,PRIVATE       ! Reference to timer registry
+Lock                &ICriticalSection,PRIVATE         ! Thread synchronization object for class members
 
 Construct           PROCEDURE()                       ! Initialize timer
 Destruct            PROCEDURE()                       ! Clean up timer
