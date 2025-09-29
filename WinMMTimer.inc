@@ -17,6 +17,8 @@
 !-- Windows message constants
 WM_USER      EQUATE(0400h)        ! Base for user-defined messages
 WM_TIMERMSG  EQUATE(WM_USER + 500) ! Custom message for timer notifications
+WM_DESTROY    EQUATE(2)        ! Sent when a window is being destroyed
+WM_NCDESTROY  EQUATE(130h)     ! Sent after the non-client area is being destroyed
 
 !===============================================================
 ! MapQType - Queue structure to track window subclassing information

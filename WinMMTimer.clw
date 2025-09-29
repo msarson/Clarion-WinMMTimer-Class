@@ -399,17 +399,21 @@ lpSelf               &WinMMTimerClass
   CODE
   ! Handle our custom timer message
   IF uMsg = WM_TIMERMSG
-    ! Convert lParam to timer instance pointer
     lpSelf &= (lParam)
-    
-    ! Process timer notification if instance is valid
     IF ~lpSelf &= NULL AND lpSelf.Hwnd
       lpSelf.HandleMessage()
     END
-    
-    RETURN 0  ! Message handled
+    RETURN 0
   END
 
-  ! For all other messages, pass to the default subclass procedure
-  ! This automatically handles calling the original window procedure
+  ! Handle window destruction: cleanup timers automatically
+  IF uMsg = WM_DESTROY OR uMsg = WM_NCDESTROY
+    lpSelf &= (dwRefData)          ! Timer instance was passed as ref data
+    IF ~lpSelf &= NULL
+      lpSelf.Stop()                ! Kill timer + unsubclass safely
+    END
+  END
+
+  ! Pass all other messages to the default subclass proc
   RETURN MMT_DefSubclassProc(hWnd, uMsg, wParam, lParam)
+

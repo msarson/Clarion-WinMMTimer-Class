@@ -50,11 +50,13 @@ MyTimer1  WinMMTimerClass  ! Fast timer (10ms)
 MyTimer2  WinMMTimerClass  ! Slow timer (50ms)
 
 ! Window with two progress bars to demonstrate the timers
-Window          WINDOW('Two timers demo'),AT(,,395,224),MDI,GRAY,IMM,FONT('Segoe UI',9)
-                  BUTTON('Start'),AT(291,201,41,14),USE(?OkButton),DEFAULT
-                  BUTTON('Close'),AT(340,201,42,14),USE(?CancelButton)
-                  PROGRESS,AT(30,29,289,30),USE(?PROGRESS1),RANGE(0,100)  ! Progress bar for fast timer
-                  PROGRESS,AT(30,86,289,30),USE(?PROGRESS2),RANGE(0,100)  ! Progress bar for slow timer
+Window          WINDOW('Two timers demo'),AT(,,395,113),MDI,GRAY,SYSTEM,FONT('Segoe UI',9)
+                  BUTTON('Start'),AT(254,87,41,19),USE(?OkButton),DEFAULT
+                  BUTTON('Close'),AT(303,87,42,19),USE(?CancelButton)
+    ! Progress bar for fast timer
+                  PROGRESS,AT(56,14,289,30),USE(?PROGRESS1),RANGE(0,100)
+    ! Progress bar for slow timer
+                  PROGRESS,AT(56,54,289,30),USE(?PROGRESS2),RANGE(0,100)
                 END
 
 ! Variables for notification handling
@@ -135,12 +137,6 @@ MaxValue  LONG(100)   ! Maximum value for progress bars
           ?PROGRESS2{PROP:Progress} = Count2
         END
       END
-
-    OF EVENT:CloseWindow
-      ! Stop timers when window is closed
-      MyTimer1.Stop()
-      MyTimer2.Stop()
-      BREAK
     END
   END
   ! Cleanup happens automatically in the Destruct methods of the timer objects
