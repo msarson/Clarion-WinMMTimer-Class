@@ -67,9 +67,11 @@ NOTIFY:FastTick   EQUATE(1001)  ! Notification code for fast timer
 NOTIFY:SlowTick   EQUATE(1002)  ! Notification code for slow timer
 
 ! Variables to track progress bar positions
-Count1    LONG(0)  ! Counter for first progress bar
-Count2    LONG(0)  ! Counter for second progress bar
-MaxValue  LONG(100)  ! Maximum value for progress bars
+Count1    LONG(0)     ! Counter for first progress bar
+Count2    LONG(0)     ! Counter for second progress bar
+Dir1      SIGNED(1)   ! Direction for first progress bar (1 = up, -1 = down)
+Dir2      SIGNED(1)   ! Direction for second progress bar
+MaxValue  LONG(100)   ! Maximum value for progress bars
 !---------------------------------------------------------------
   CODE
   OPEN(Window)  ! Open the timer demo window
@@ -111,14 +113,26 @@ MaxValue  LONG(100)  ! Maximum value for progress bars
         CASE NCode
         OF NOTIFY:FastTick
           ! Update first progress bar (fast timer)
-          Count1 += 1
-          IF Count1 > MaxValue THEN Count1 = 0.  ! Reset when reaching max
-          ?PROGRESS1{PROP:Progress} = Count1  ! Update progress bar position
+          Count1 += Dir1
+          IF Count1 >= MaxValue
+            Count1 = MaxValue
+            Dir1 = -1
+          ELSIF Count1 <= 0
+            Count1 = 0
+            Dir1 = 1
+          END
+          ?PROGRESS1{PROP:Progress} = Count1
         OF NOTIFY:SlowTick
           ! Update second progress bar (slow timer)
-          Count2 += 1
-          IF Count2 > MaxValue THEN Count2 = 0.  ! Reset when reaching max
-          ?PROGRESS2{PROP:Progress} = Count2  ! Update progress bar position
+          Count2 += Dir2
+          IF Count2 >= MaxValue
+            Count2 = MaxValue
+            Dir2 = -1
+          ELSIF Count2 <= 0
+            Count2 = 0
+            Dir2 = 1
+          END
+          ?PROGRESS2{PROP:Progress} = Count2
         END
       END
 
@@ -129,5 +143,4 @@ MaxValue  LONG(100)  ! Maximum value for progress bars
       BREAK
     END
   END
-
   ! Cleanup happens automatically in the Destruct methods of the timer objects

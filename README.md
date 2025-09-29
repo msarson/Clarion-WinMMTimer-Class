@@ -118,6 +118,20 @@ MyTimer2.Stop()
 4. When the custom message is received, the timer calls the `NOTIFY` mechanism to notify the application.
 5. The application handles the notification in its event loop.
 
+### Why the Registry Exists
+
+The WinMMTimer implementation uses a registry pattern for a critical reason: to manage multiple timers across multiple threads efficiently and safely. Here's why this design is necessary:
+
+1. **Multiple Timers Per Window**: A single window can have multiple timers attached to it (as demonstrated in the TimerTest example). Without a registry, each timer would attempt to subclass the same window independently, causing conflicts and potentially overwriting each other's window procedures.
+
+2. **Thread Safety Concerns**: In multi-threaded applications, timers might be created and destroyed from different threads. The registry ensures that window subclassing operations are properly synchronized across threads.
+
+3. **Resource Management**: The registry tracks which windows have been subclassed and maintains reference counts, ensuring that window procedures are only restored to their original state when all timers for that window have been stopped.
+
+4. **Preventing Memory Leaks**: By centralizing the management of subclassed windows, the registry helps prevent memory leaks that could occur if a timer is destroyed without properly restoring the original window procedure.
+
+**Important Note**: While it might be tempting to optimize by removing the registry pattern, doing so would break the ability to have multiple timers on the same window and could introduce thread safety issues. The registry's overhead is minimal compared to the robustness it provides.
+
 ### Thread Safety
 
 The timer implementation includes several features to ensure thread safety:

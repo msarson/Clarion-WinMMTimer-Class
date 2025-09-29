@@ -19,9 +19,9 @@
             
             ! Windows User32 API functions
             MODULE('USER32.DLL')
-              MMT_OutputDebugString(*CSTRING lpOutputString),PASCAL,RAW,NAME('OutputDebugStringA'),PROC  ! Debug output
+             ! MMT_OutputDebugString(*CSTRING lpOutputString),PASCAL,RAW,NAME('OutputDebugStringA'),PROC  ! Debug output
               MMT_PostMessage(LONG hWnd, UNSIGNED nMsg, UNSIGNED wParam, LONG lParam),BOOL,PASCAL,PROC,NAME('PostMessageA')  ! Post window message
-              MMT_CallWindowProcA(LONG lpPrevWndFunc, LONG hWnd, UNSIGNED uMsg, UNSIGNED wParam, LONG lParam),LONG,PASCAL,RAW,NAME('CallWindowProcA')  ! Call original window proc
+            !  MMT_CallWindowProcA(LONG lpPrevWndFunc, LONG hWnd, UNSIGNED uMsg, UNSIGNED wParam, LONG lParam),LONG,PASCAL,RAW,NAME('CallWindowProcA')  ! Call original window proc
             END
             
             ! Windows Common Controls subclassing API functions (safer window subclassing)
@@ -36,12 +36,10 @@
             TimerSubclassProc(LONG hWnd, UNSIGNED uMsg, UNSIGNED wParam, LONG lParam, UNSIGNED uIdSubclass, LONG dwRefData),LONG,PASCAL   ! Subclassed window procedure
 
             ! Function prototype for GetGlobalRegistry
-            GetGlobalRegistry(),*WinMMTimerRegistry
+            GetGlobalRegistry(),*WinMMTimerRegistry,PRIVATE
           END
 
-! Thread-safe singleton registry implementation
-GlobalRegistryInstance &WinMMTimerRegistry,STATIC
-GlobalRegistryLock     &ICriticalSection,STATIC
+
 
 !---------------------------------------------------------------
 ! GetGlobalRegistry
@@ -53,23 +51,20 @@ GlobalRegistryLock     &ICriticalSection,STATIC
 !   &WinMMTimerRegistry - Reference to the global registry instance
 !---------------------------------------------------------------
 GetGlobalRegistry PROCEDURE()
-ReturnValue        &WinMMTimerRegistry
+RegInstance &WinMMTimerRegistry,STATIC
+Lock        &ICriticalSection,STATIC
   CODE
-  ! Create lock if it doesn't exist
-  IF GlobalRegistryLock &= NULL
-    GlobalRegistryLock &= NewCriticalSection()
+  IF Lock &= NULL
+    Lock &= NewCriticalSection()
   END
-  
-  ! Thread-safe singleton pattern
-  GlobalRegistryLock.Wait()
-  
-  IF GlobalRegistryInstance &= NULL
-    GlobalRegistryInstance &= NEW WinMMTimerRegistry
+
+  Lock.Wait()
+  IF RegInstance &= NULL
+    RegInstance &= NEW WinMMTimerRegistry
   END
-  
-  ReturnValue &= GlobalRegistryInstance
-  GlobalRegistryLock.Release()
-  RETURN ReturnValue
+  Lock.Release()
+
+  RETURN RegInstance
 
 !===============================================================
 ! Registry implementation
