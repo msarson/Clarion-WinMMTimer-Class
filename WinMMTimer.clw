@@ -23,10 +23,17 @@
               MMT_PostMessage(LONG hWnd, UNSIGNED nMsg, UNSIGNED wParam, LONG lParam),BOOL,PASCAL,PROC,NAME('PostMessageA')  ! Post window message
               MMT_CallWindowProcA(LONG lpPrevWndFunc, LONG hWnd, UNSIGNED uMsg, UNSIGNED wParam, LONG lParam),LONG,PASCAL,RAW,NAME('CallWindowProcA')  ! Call original window proc
             END
+            
+            ! Windows Common Controls subclassing API functions (safer window subclassing)
+            MODULE('COMCTL32.DLL')
+              MMT_SetWindowSubclass(LONG hWnd, LONG pfnSubclassProc, UNSIGNED uIdSubclass, LONG dwRefData),BOOL,PASCAL,RAW,NAME('SetWindowSubclass'),PROC  ! Set window subclass
+              MMT_RemoveWindowSubclass(LONG hWnd, LONG pfnSubclassProc, UNSIGNED uIdSubclass),BOOL,PASCAL,RAW,NAME('RemoveWindowSubclass'),PROC  ! Remove window subclass
+              MMT_DefSubclassProc(LONG hWnd, UNSIGNED uMsg, UNSIGNED wParam, LONG lParam),LONG,PASCAL,RAW,NAME('DefSubclassProc')  ! Default subclass procedure
+            END
 
             ! Internal callback functions
             MMCallback(LONG uTimerID, LONG uMsg, LONG dwUser, LONG dw1, LONG dw2),PASCAL,PROC  ! MM Timer callback
-            TimerWndProc(LONG hWnd, UNSIGNED uMsg, UNSIGNED wParam, LONG lParam),LONG,PASCAL   ! Subclassed window procedure
+            TimerSubclassProc(LONG hWnd, UNSIGNED uMsg, UNSIGNED wParam, LONG lParam, UNSIGNED uIdSubclass, LONG dwRefData),LONG,PASCAL   ! Subclassed window procedure
           END
 
 ! Global registry instance shared by all timer instances
@@ -211,8 +218,8 @@ oldProc                     LONG
 !   param    - Optional user parameter (default 0)
 !---------------------------------------------------------------
 WinMMTimerClass.Start PROCEDURE(UNSIGNED interval, WINDOW w, UNSIGNED code, LONG param)
-oldProc                 LONG
-csMsg     CSTRING(128)
+result                  BOOL
+csMsg                   CSTRING(128)
   CODE
   ! Safety check for registry
   IF SELF.Registry &= NULL
@@ -225,12 +232,9 @@ csMsg     CSTRING(128)
   SELF.Param      = param               ! Store user parameter
   SELF.Interval   = interval            ! Store timer interval
   
-  ! Subclass the window to receive timer messages
-  oldProc = w{PROP:WndProc}             ! Get original window procedure
-  w{PROP:WndProc} = ADDRESS(TimerWndProc) ! Set our window procedure
-
-  ! Register the subclassing in the registry
-  SELF.Registry.RegisterSubclass(SELF.Hwnd, oldProc, THREAD())
+  ! Subclass the window using the safer Windows API
+  ! This performs the operation atomically and handles reference counting
+  result = MMT_SetWindowSubclass(SELF.Hwnd, ADDRESS(TimerSubclassProc), THREAD(), ADDRESS(SELF))
   
   ! Create the multimedia timer
   ! Parameters: delay, resolution, callback function, user data, TIME_PERIODIC
@@ -261,7 +265,7 @@ WinMMTimerClass.Resume PROCEDURE()
     SELF.TimerID = MMT_timeSetEvent(SELF.Interval, 1, ADDRESS(MMCallback), ADDRESS(SELF), 1)
   END
 WinMMTimerClass.Stop  PROCEDURE()
-oldProc                 LONG
+result                  BOOL
   CODE
   ! Always kill the timer first so no more callbacks arrive
   IF SELF.TimerID
@@ -269,13 +273,10 @@ oldProc                 LONG
     SELF.TimerID = 0
   END
 
-  ! Now restore subclassing safely
-  IF SELF.Hwnd AND ~(SELF.Registry &= NULL)
-    oldProc = SELF.Registry.UnregisterSubclass(SELF.Hwnd)
-    IF oldProc
-      SELF.Hwnd{PROP:WndProc} = oldProc
-    END
-    SELF.Hwnd = 0   ! clear handle so Destruct won�t double-unsubclass
+  ! Remove the subclass using the safer Windows API
+  IF SELF.Hwnd
+    result = MMT_RemoveWindowSubclass(SELF.Hwnd, ADDRESS(TimerSubclassProc), THREAD())
+    SELF.Hwnd = 0   ! clear handle so Destruct won't double-unsubclass
   END
 
 
@@ -319,24 +320,24 @@ lpSelf          &WinMMTimerClass
   END
 
 !---------------------------------------------------------------
-! TimerWndProc
+! TimerSubclassProc
 !
 ! Subclassed window procedure that handles timer messages
 ! and passes other messages to the original window procedure
 !
 ! Parameters:
-!   hWnd    - Window handle
-!   uMsg    - Message ID
-!   wParam  - Message parameter
-!   lParam  - Message parameter (contains timer instance for WM_TIMERMSG)
+!   hWnd         - Window handle
+!   uMsg         - Message ID
+!   wParam       - Message parameter
+!   lParam       - Message parameter (contains timer instance for WM_TIMERMSG)
+!   uIdSubclass  - Subclass ID (thread ID in our case)
+!   dwRefData    - Reference data (pointer to timer instance)
 !
 ! Returns:
 !   LONG    - Message result
 !---------------------------------------------------------------
-TimerWndProc  PROCEDURE(LONG hWnd, UNSIGNED uMsg, UNSIGNED wParam, LONG lParam)
-lpSelf          &WinMMTimerClass
-oldProc         LONG
-reg             &WinMMTimerRegistry
+TimerSubclassProc  PROCEDURE(LONG hWnd, UNSIGNED uMsg, UNSIGNED wParam, LONG lParam, UNSIGNED uIdSubclass, LONG dwRefData)
+lpSelf               &WinMMTimerClass
   CODE
   ! Handle our custom timer message
   IF uMsg = WM_TIMERMSG
@@ -351,19 +352,6 @@ reg             &WinMMTimerRegistry
     RETURN 0  ! Message handled
   END
 
-  ! For all other messages, pass to original window procedure
-  reg &= GlobalRegistry
-  oldProc = 0
-  
-  ! Find the original window procedure in the registry
-  IF ~reg &= NULL
-    oldProc = reg.FindOldProc(hWnd)
-  END
-
-  ! Call the original window procedure
-  IF oldProc
-    RETURN MMT_CallWindowProcA(oldProc, hWnd, uMsg, wParam, lParam)
-  ELSE
-    ! Fallback if original procedure not found
-    RETURN MMT_CallWindowProcA(0, hWnd, uMsg, wParam, lParam)
-  END
+  ! For all other messages, pass to the default subclass procedure
+  ! This automatically handles calling the original window procedure
+  RETURN MMT_DefSubclassProc(hWnd, uMsg, wParam, lParam)
