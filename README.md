@@ -9,7 +9,7 @@ WinMMTimer is a high-precision timer class for Clarion applications that provide
 - **High-precision timing**: Millisecond-level accuracy using the Windows Multimedia Timer API
 - **Simple interface**: Easy to use with standard Clarion notification mechanism
 - **Multiple timers**: Support for multiple timer instances in the same window
-- **Thread-safe**: Enhanced thread safety with critical sections, atomic operations, and defensive programming
+- **Thread-safe**: Enhanced thread safety with critical sections, Windows Common Controls subclassing APIs, and defensive programming
 - **Pause/Resume**: Ability to pause and resume timers without losing settings
 
 ## Files
@@ -122,11 +122,11 @@ MyTimer2.Stop()
 
 The WinMMTimer implementation uses a registry pattern for a critical reason: to manage multiple timers across multiple threads efficiently and safely. Here's why this design is necessary:
 
-1. **Multiple Timers Per Window**: A single window can have multiple timers attached to it (as demonstrated in the TimerTest example). Without a registry, each timer would attempt to subclass the same window independently, causing conflicts and potentially overwriting each other's window procedures.
+1. **Multiple Timers Per Window**: A single window can have multiple timers attached to it (as demonstrated in the TimerTest example). The registry helps manage these multiple timers by tracking which windows have been subclassed.
 
 2. **Thread Safety Concerns**: In multi-threaded applications, timers might be created and destroyed from different threads. The registry ensures that window subclassing operations are properly synchronized across threads.
 
-3. **Resource Management**: The registry tracks which windows have been subclassed and maintains reference counts, ensuring that window procedures are only restored to their original state when all timers for that window have been stopped.
+3. **Resource Management**: The registry tracks which windows have been subclassed, ensuring that window procedures are only restored to their original state when all timers for that window have been stopped.
 
 4. **Preventing Memory Leaks**: By centralizing the management of subclassed windows, the registry helps prevent memory leaks that could occur if a timer is destroyed without properly restoring the original window procedure.
 
@@ -140,13 +140,11 @@ The timer implementation includes several features to ensure thread safety:
 
 2. **Critical Sections**: All shared data access is protected by critical sections to prevent race conditions.
 
-3. **Windows Subclassing APIs**: Uses the safer Windows Common Controls subclassing APIs (`SetWindowSubclass`, `RemoveWindowSubclass`, `DefSubclassProc`) for atomic window procedure management.
+3. **Windows Common Controls Subclassing APIs**: Uses the safer Windows Common Controls subclassing APIs (`SetWindowSubclass`, `RemoveWindowSubclass`, `DefSubclassProc`) for atomic window procedure management.
 
 4. **Defensive Callback Handling**: Timer callbacks make local copies of handles and validate them before use to prevent race conditions.
 
 5. **Parameter Validation**: Extensive validation of parameters and return values to ensure robustness.
-
-6. **Simplified Registry**: The registry implementation has been simplified to work with the Windows subclassing APIs' built-in reference counting.
 
 ### Memory Management
 

@@ -3,6 +3,7 @@
 !
 ! This module implements a high-resolution timer using the Windows Multimedia
 ! Timer API. It provides millisecond precision timing for Clarion applications.
+! Uses Windows Common Controls subclassing APIs for safer window procedure management.
 !===============================================================
           MEMBER()
   INCLUDE('WinMMTimer.inc'),ONCE    ! Include timer class definitions
@@ -19,9 +20,7 @@
             
             ! Windows User32 API functions
             MODULE('USER32.DLL')
-             ! MMT_OutputDebugString(*CSTRING lpOutputString),PASCAL,RAW,NAME('OutputDebugStringA'),PROC  ! Debug output
               MMT_PostMessage(LONG hWnd, UNSIGNED nMsg, UNSIGNED wParam, LONG lParam),BOOL,PASCAL,PROC,NAME('PostMessageA')  ! Post window message
-            !  MMT_CallWindowProcA(LONG lpPrevWndFunc, LONG hWnd, UNSIGNED uMsg, UNSIGNED wParam, LONG lParam),LONG,PASCAL,RAW,NAME('CallWindowProcA')  ! Call original window proc
             END
             
             ! Windows Common Controls subclassing API functions (safer window subclassing)
@@ -103,7 +102,7 @@ WinMMTimerRegistry.Destruct   PROCEDURE()
 ! WinMMTimerRegistry.RegisterSubclass
 !
 ! Register a window for subclassing, storing its original window procedure
-! and incrementing the reference count if already registered
+! and tracking the thread ID that created the timer
 !
 ! Parameters:
 !   hWnd    - Window handle to subclass
@@ -112,8 +111,8 @@ WinMMTimerRegistry.Destruct   PROCEDURE()
 !---------------------------------------------------------------
 WinMMTimerRegistry.RegisterSubclass   PROCEDURE(LONG hWnd, LONG oldProc, LONG thread)
   CODE
-  ! With Windows subclassing APIs, we don't need to track reference counts
-  ! This method is kept for backward compatibility but simplified
+  ! With Windows Common Controls subclassing APIs, we don't need to track reference counts
+  ! as they handle reference counting internally
   SELF.Lock.Wait()                      ! Acquire thread lock
   
   ! Check if we already have an entry for this window
@@ -135,15 +134,14 @@ WinMMTimerRegistry.RegisterSubclass   PROCEDURE(LONG hWnd, LONG oldProc, LONG th
 !---------------------------------------------------------------
 ! WinMMTimerRegistry.UnregisterSubclass
 !
-! Unregister a window from subclassing, decrementing the reference count
-! and removing the entry if no more references exist
+! Unregister a window from subclassing and remove the entry from the registry
 !
 ! Parameters:
 !   hWnd    - Window handle to unregister
 !
 ! Returns:
-!   LONG    - Original window procedure address if completely unregistered,
-!             or 0 if still referenced by other timers
+!   LONG    - Original window procedure address if found,
+!             or 0 if not found
 !---------------------------------------------------------------
 WinMMTimerRegistry.UnregisterSubclass PROCEDURE(LONG hWnd)
 oldProc                                 LONG
@@ -164,35 +162,6 @@ oldProc                                 LONG
   SELF.Lock.Release()                   ! Release thread lock
   RETURN oldProc                        ! Return original window proc or 0
 
-!---------------------------------------------------------------
-! WinMMTimerRegistry.FindOldProc
-!
-! Find the original window procedure for a given window handle
-!
-! Parameters:
-!   hWnd    - Window handle to look up
-!
-! Returns:
-!   LONG    - Original window procedure address or 0 if not found
-!---------------------------------------------------------------
-WinMMTimerRegistry.FindOldProc PROCEDURE(LONG hWnd)
-oldProc LONG
-csmsg  CSTRING(128)
-  CODE
-  oldProc = 0
-  SELF.Lock.Wait()                      ! Acquire thread lock
-  
-  ! Find window entry by handle only (not thread-specific)
-  SELF.MapQ.Hwnd = hWnd
-  GET(SELF.MapQ, +SELF.MapQ.Hwnd)       ! search by hWnd only
-  
-  IF ~ERRORCODE()
-    ! Found the entry - get original window procedure
-    oldProc = SELF.MapQ.OldProc
-  END
-  
-  SELF.Lock.Release()                   ! Release thread lock
-  RETURN oldProc                        ! Return original window proc or 0
 
 
 !===============================================================
@@ -262,17 +231,16 @@ currentThread           LONG
     RETURN  ! Invalid window handle
   END
   
-  ! Check thread affinity
+  ! Get current thread ID
   currentThread = THREAD()
-  ! Thread affinity check removed due to API compatibility issues
   
   ! Store timer parameters
   SELF.NotifyCode = code                ! Store notification code
   SELF.Param      = param               ! Store user parameter
   SELF.Interval   = interval            ! Store timer interval
   
-  ! Subclass the window using the safer Windows API
-  ! This performs the operation atomically and handles reference counting
+  ! Subclass the window using the Windows Common Controls API
+  ! This performs the operation atomically and handles reference counting internally
   result = MMT_SetWindowSubclass(SELF.Hwnd, ADDRESS(TimerSubclassProc), THREAD(), ADDRESS(SELF))
   
   ! Check if subclassing was successful
@@ -351,7 +319,7 @@ result                  BOOL
     SELF.TimerID = 0
   END
 
-  ! Remove the subclass using the safer Windows API
+  ! Remove the subclass using the Windows Common Controls API
   IF SELF.Hwnd
     result = MMT_RemoveWindowSubclass(SELF.Hwnd, ADDRESS(TimerSubclassProc), THREAD())
     SELF.Hwnd = 0   ! clear handle so Destruct won't double-unsubclass

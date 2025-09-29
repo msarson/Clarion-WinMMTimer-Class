@@ -8,11 +8,10 @@
 !
 ! Thread Safety:
 ! This implementation is designed to be thread-safe through the use of:
-! - Windows subclassing APIs for atomic window procedure management
+! - Windows Common Controls subclassing APIs for atomic window procedure management
 ! - Critical sections for synchronizing access to shared data
 ! - Thread-safe singleton pattern for global registry access
 ! - Defensive callback handling to prevent race conditions
-! - Thread affinity validation to detect potential issues
 !===============================================================
 
 !-- Windows message constants
@@ -21,6 +20,7 @@ WM_TIMERMSG  EQUATE(WM_USER + 500) ! Custom message for timer notifications
 
 !===============================================================
 ! MapQType - Queue structure to track window subclassing information
+! Used by the registry to manage subclassed windows
 !===============================================================
 MapQType  QUEUE,TYPE
 Hwnd        LONG      ! Window handle being subclassed
@@ -39,7 +39,7 @@ ThreadID    LONG      ! Thread ID that created the timer
 ! Thread Safety:
 ! - Uses critical sections to synchronize access to the registry
 ! - Tracks thread IDs to associate timers with their creating threads
-! - Simplified implementation that works with Windows subclassing APIs
+! - Works with Windows Common Controls subclassing APIs
 !---------------------------------------------------------------
 WinMMTimerRegistry    CLASS,TYPE,MODULE('WinMMTimer.clw'),LINK('WinMMTimer.clw')
 MapQ                    &MapQType,PRIVATE              ! Queue to track subclassed windows
@@ -48,7 +48,6 @@ Construct               PROCEDURE()                    ! Initialize registry
 Destruct                PROCEDURE()                    ! Clean up registry
 RegisterSubclass        PROCEDURE(LONG hWnd, LONG oldProc, LONG thread) ! Register a subclassed window
 UnregisterSubclass      PROCEDURE(LONG hWnd),LONG     ! Unregister a subclassed window, returns original proc
-FindOldProc             PROCEDURE(LONG hWnd),LONG     ! Find original window procedure for a window
                       END
 
 
@@ -62,8 +61,7 @@ FindOldProc             PROCEDURE(LONG hWnd),LONG     ! Find original window pro
 ! Thread Safety:
 ! - Uses critical sections to protect access to class members
 ! - Validates window handles before use to prevent race conditions
-! - Checks thread affinity to detect potential issues
-! - Uses Windows subclassing APIs for atomic window procedure management
+! - Uses Windows Common Controls subclassing APIs for atomic window procedure management
 ! - Implements defensive callback handling to prevent race conditions
 !---------------------------------------------------------------
 WinMMTimerClass   CLASS,TYPE,MODULE('WinMMTimer.clw'),LINK('WinMMTimer.clw')
