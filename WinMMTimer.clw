@@ -338,9 +338,14 @@ result                  BOOL
 !---------------------------------------------------------------
 WinMMTimerClass.HandleMessage PROCEDURE()
   CODE
+  IF Self.OnTick() <> LEVEL:Benign
   ! Send notification to the application using Clarion's NOTIFY mechanism
-  NOTIFY(SELF.NotifyCode, THREAD(), SELF.Param)
+    NOTIFY(SELF.NotifyCode, THREAD(), SELF.Param)
+  END
 
+WinMMTimerClass.OnTick PROCEDURE()
+  CODE
+  RETURN LEVEL:Notify   ! Default implementation does nothing, return Notify to continue call to accept loop
 !===============================================================
 ! Static callback + wndproc
 !===============================================================

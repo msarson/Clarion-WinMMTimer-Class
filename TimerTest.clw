@@ -42,15 +42,20 @@ AppFrame  APPLICATION('Timer Demo'),AT(,,505,318),CENTER,MASK,SYSTEM,MAX, |
 !
 ! This procedure demonstrates the use of two WinMMTimer instances
 ! with different intervals to update two progress bars
+! - MyTimer1: Event-driven timer, handled via NOTIFY in the ACCEPT loop
+! - MyTimer2: Inline timer, handled by deriving OnTick()  
 !---------------------------------------------------------------
 TimerWindow   PROCEDURE()
 
 ! Create two timer instances
 MyTimer1  WinMMTimerClass  ! Fast timer (10ms)
-MyTimer2  WinMMTimerClass  ! Slow timer (50ms)
+MyTimer2        CLASS(WinMMTimerClass)  ! Slow timer (50ms)
+OnTick            PROCEDURE(),SIGNED,DERIVED
+                END
+
 
 ! Window with two progress bars to demonstrate the timers
-Window          WINDOW('Two timers demo'),AT(,,395,113),MDI,GRAY,SYSTEM,FONT('Segoe UI',9)
+TimerWindow          WINDOW('Two timers demo'),AT(,,395,113),MDI,GRAY,SYSTEM,FONT('Segoe UI',9)
                   BUTTON('Start'),AT(254,87,41,19),USE(?OkButton),DEFAULT
                   BUTTON('Close'),AT(303,87,42,19),USE(?CancelButton)
     ! Progress bar for fast timer
@@ -66,7 +71,7 @@ NParam    LONG      ! Notification parameter
 
 ! Custom notification codes for our timers
 NOTIFY:FastTick   EQUATE(1001)  ! Notification code for fast timer
-NOTIFY:SlowTick   EQUATE(1002)  ! Notification code for slow timer
+NOTIFY:SlowTick   EQUATE(1002)  ! Notification code for slow timer code shows it's not used
 
 ! Variables to track progress bar positions
 Count1    LONG(0)     ! Counter for first progress bar
@@ -76,7 +81,7 @@ Dir2      SIGNED(1)   ! Direction for second progress bar
 MaxValue  LONG(100)   ! Maximum value for progress bars
 !---------------------------------------------------------------
   CODE
-  OPEN(Window)  ! Open the timer demo window
+  OPEN(TimerWindow)  ! Open the timer demo window
 
   ! Set range for both progress bars
   ?PROGRESS1{PROP:RangeHigh} = MaxValue
@@ -90,8 +95,8 @@ MaxValue  LONG(100)   ! Maximum value for progress bars
       CASE ?OkButton{prop:text}
       OF 'Start'
         ! Start two timers with different intervals:
-        MyTimer1.Start(10, Window, NOTIFY:FastTick)   ! 10 ms interval (fast timer)
-        MyTimer2.Start(50, Window, NOTIFY:SlowTick)   ! 50 ms interval (slow timer)
+        MyTimer1.Start(10, TimerWindow, NOTIFY:FastTick)   ! 10 ms interval (fast timer)
+        MyTimer2.Start(50, TimerWindow, NOTIFY:SlowTick)   ! 50 ms interval (slow timer)
         ?OkButton{prop:text} = 'Pause'  ! Change button text to Pause
       OF 'Pause'
         ! Pause both timers
@@ -125,18 +130,23 @@ MaxValue  LONG(100)   ! Maximum value for progress bars
           END
           ?PROGRESS1{PROP:Progress} = Count1
         OF NOTIFY:SlowTick
-          ! Update second progress bar (slow timer)
-          Count2 += Dir2
-          IF Count2 >= MaxValue
-            Count2 = MaxValue
-            Dir2 = -1
-          ELSIF Count2 <= 0
-            Count2 = 0
-            Dir2 = 1
-          END
-          ?PROGRESS2{PROP:Progress} = Count2
+          ! MyTimer2 is handled by OnTick, so we don’t need NOTIFY:SlowTick here
         END
       END
     END
   END
   ! Cleanup happens automatically in the Destruct methods of the timer objects
+
+MyTimer2.OnTick   Procedure()
+  CODE
+
+  Count2 += Dir2
+  IF Count2 >= MaxValue
+    Count2 = MaxValue
+    Dir2 = -1
+  ELSIF Count2 <= 0
+    Count2 = 0
+    Dir2 = 1
+  END
+  ?PROGRESS2{PROP:Progress} = Count2
+  RETURN Level:Benign  ! Suppress NOTIFY (handled here)

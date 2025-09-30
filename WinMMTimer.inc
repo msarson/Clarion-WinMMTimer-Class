@@ -82,4 +82,6 @@ Pause               PROCEDURE()                       ! Temporarily pause the ti
 Resume              PROCEDURE()                       ! Resume a paused timer
 Stop                PROCEDURE()                       ! Stop the timer completely
 HandleMessage       PROCEDURE(),VIRTUAL               ! Process timer notification - can be overridden in derived classes
+
+OnTick              PROCEDURE(),VIRTUAL,SIGNED         ! Virtual method called on each tick, return FALSE to stop timer
                   END
